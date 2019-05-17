@@ -23,15 +23,15 @@ if __name__ == '__main__':
 
     with pm.Model() as hierarchical_model:
         #Reading
-        intercept_mean = pm.Normal('intercept', 0, sd=100)
+        intercept_mean = pm.Normal('intercept_mean', 0, sd=100)
         lunch_mean = pm.Normal('lunch_mean', 0, sd=100)
         gender_mean = pm.Normal('gender_mean', 0, sd=100)
         testPrep_mean = pm.Normal('testPrep_mean', 0, sd=100)
         race_mean = pm.Normal('race_mean', 0, sd=100, shape=race_OneHot.shape[1])
         PEd_mean = pm.Normal('PEd_mean', 0, sd=100, shape=PEd_OneHot.shape[1])
 
-        global_shrinkage_model = pm.HalfCauchy('global_shrinkage', 5)
-        local_shrinkage_model = pm.HalfCauchy('local_shrinkage', 5, shape=3)
+        global_shrinkage_model = pm.HalfCauchy('global_shrinkage_model', 5)
+        local_shrinkage_model = pm.HalfCauchy('local_shrinkage_model', 5, shape=3)
 
         global_shrinkage_beta = pm.HalfCauchy('global_shrinkage_beta', 5)
         local_shrinkage_beta = pm.HalfCauchy('local_shrinkage_beta', 5, shape=39)
@@ -88,8 +88,15 @@ if __name__ == '__main__':
 
 
     with hierarchical_model:
-        pm.sampling.init_nuts(init='advi_map')
+        step = pm.Metropolis([PEd_math_beta, race_math_beta, testPrep_math_beta, gender_math_beta, lunch_math_beta,
+                              intercept_math, PEd_writing_beta, race_writing_beta, testPrep_writing_beta,
+                              gender_writing_beta, lunch_writing_beta, intercept_writing, PEd_reading_beta,
+                              race_reading_beta, testPrep_reading_beta, gender_reading_beta, lunch_reading_beta,
+                              intercept_reading, local_shrinkage_beta, global_shrinkage_beta,
+                              local_shrinkage_model, global_shrinkage_model, PEd_mean, race_mean, testPrep_mean,
+                              gender_mean, lunch_mean, intercept_mean])
+        #pm.sampling.init_nuts(init='adapt_diag')
         db = pm.backends.Text('testoutput.csv')
-        hm_trace = pm.sample(1000, tune=1000, trace=db)
+        hm_trace = pm.sample(100 * 100, step=step, trace=db)
     pm.traceplot(hm_trace)
     plt.show()
