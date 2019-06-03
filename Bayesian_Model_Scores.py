@@ -10,8 +10,8 @@ if __name__ == '__main__':
 
 
     student_data = pd.read_csv('StudentsPerformance.csv')
-    #student_data = student_data.sample(200)
 
+    #split data into dummies
     lunchOneHot = pd.get_dummies(student_data['lunch']).iloc[:, 1:2]
     genderOneHot = pd.get_dummies(student_data['gender']).iloc[:, 1:2]
     testPrepOneHot = pd.get_dummies(student_data['test preparation course']).iloc[:, 1:2]
@@ -19,12 +19,13 @@ if __name__ == '__main__':
     race_OneHot = pd.get_dummies(student_data['race/ethnicity']).iloc[:, 1:5]
     PEd_OneHot = pd.get_dummies(student_data['parental level of education']).iloc[:, 1:6]
 
+    #Put data on log scale. Add 1 to handle scores of 0
     reading_transform = logit((student_data['reading score'] + 1) / 102)
     writing_transform = logit((student_data['writing score'] + 1) / 102)
     math_transform = logit((student_data['math score'] + 1) / 102)
 
     with pm.Model() as hierarchical_model:
-        # Reading
+        # Highest category
         intercept_mean = pm.Normal('intercept_mean', 0, sd=100)
         lunch_mean = pm.Normal('lunch_mean', 0, sd=100)
         gender_mean = pm.Normal('gender_mean', 0, sd=100)
@@ -32,12 +33,14 @@ if __name__ == '__main__':
         race_mean = pm.Normal('race_mean', 0, sd=100, shape=race_OneHot.shape[1])
         PEd_mean = pm.Normal('PEd_mean', 0, sd=100, shape=PEd_OneHot.shape[1])
 
-        global_shrinkage_model = pm.InverseGamma('global_shrinkage_model', mu=1, sd=100)
+        #Shrinkage priors: Cauchy prior's tails are too thick
+        #global_shrinkage_model = pm.InverseGamma('global_shrinkage_model', mu=1, sd=100)
         local_shrinkage_model = pm.InverseGamma('local_shrinkage_model', mu=1, sd=100, shape=3)
 
         global_shrinkage_beta = pm.InverseGamma('global_shrinkage_beta', mu=1, sd=100)
         local_shrinkage_beta = pm.InverseGamma('local_shrinkage_beta', mu=1, sd=100, shape=39)
 
+        #reading scores priors
         intercept_reading = pm.Normal('intercept_reading', intercept_mean,
                                       sd=global_shrinkage_beta * local_shrinkage_beta[0])
         lunch_reading_beta = pm.Normal('lunch_reading_beta', lunch_mean,
@@ -51,7 +54,7 @@ if __name__ == '__main__':
                                       shape=(race_OneHot.shape[1]))
         PEd_reading_beta = pm.Normal('PEd_reading_beta', PEd_mean,
                                      sd=global_shrinkage_beta * local_shrinkage_beta[8:13], shape=(PEd_OneHot.shape[1]))
-
+        #build linear model for reading scores
         students_lm_reading = intercept_reading + lunch_reading_beta * lunchOneHot + gender_reading_beta * genderOneHot + \
                               testPrep_reading_beta * testPrepOneHot
         for i in range(race_OneHot.shape[1]):
@@ -63,7 +66,7 @@ if __name__ == '__main__':
                                   sd=local_shrinkage_model[0],
         observed=reading_transform)
 
-        # Writing
+        # Writing scores prior
         intercept_writing = pm.Normal('intercept_writing', intercept_mean,
                                       sd=global_shrinkage_beta * local_shrinkage_beta[13])
         lunch_writing_beta = pm.Normal('lunch_writing_beta', lunch_mean,
@@ -79,6 +82,7 @@ if __name__ == '__main__':
                                                                                               ],
                                      shape=(PEd_OneHot.shape[1]))
 
+        #build linear model for writing scores
         students_lm_writing = intercept_writing + lunch_writing_beta * lunchOneHot + gender_writing_beta * genderOneHot \
                               + testPrep_writing_beta * testPrepOneHot
         for i in range(race_OneHot.shape[1]):
@@ -89,6 +93,7 @@ if __name__ == '__main__':
         writing_score = pm.Normal('writing', mu=students_lm_writing, sd=local_shrinkage_model[1]
                                   , observed=writing_transform)
 
+        #Math scores prior
         intercept_math = pm.Normal('intercept_math', intercept_mean, sd=global_shrinkage_beta * local_shrinkage_beta[26]
                                    )
         lunch_math_beta = pm.Normal('lunch_math_beta', lunch_mean, sd=global_shrinkage_beta * local_shrinkage_beta[27])
@@ -101,6 +106,7 @@ if __name__ == '__main__':
         PEd_math_beta = pm.Normal('PEd_math_beta', PEd_mean, sd=global_shrinkage_beta * local_shrinkage_beta[34:39],
                                   shape=(PEd_OneHot.shape[1]))
 
+        #build linear model for math scores
         students_lm_math = intercept_math + lunch_math_beta * lunchOneHot + gender_math_beta * genderOneHot + \
                            testPrep_math_beta * testPrepOneHot
         for i in range(race_OneHot.shape[1]):
@@ -120,8 +126,12 @@ if __name__ == '__main__':
         # local_shrinkage_model, global_shrinkage_model, PEd_mean, race_mean, testPrep_mean,
         # gender_mean, lunch_mean, intercept_mean])
         # pm.sampling.init_nuts(init='adapt_diag')
+
+        #output file
         db = pm.backends.Text('testoutput.csv')
         # hm_trace = pm.sample(100 * 100, step=step, trace=db)
+        #1000 samples, adapt for 1000, do this two times on one core. Use variational Bayes (ADVI) to initialize.
+        #Right now pymc3 can't do multiple cores for an ADVI initialization
         hm_trace = pm.sample(1000, tune=1000, init='advi+adapt_diag', trace=db, njobs=1)
 
     pm.traceplot(hm_trace)
